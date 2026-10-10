@@ -17,3 +17,9 @@
 - Exit codes for pipelines (0 ok, 1 finding, 2 error)
 - Consistent JSON report schema
 - Proper exception handling, honest versioning
+
+## [3.1.0] - 2026-10-11
+### Added
+- Multi-target scanning: --targets file (one host per line)
+- Aggregated JSON for batch runs; per-host elapsed
+- Unresolvable hosts skipped instead of aborting the batch
