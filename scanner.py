@@ -3,7 +3,7 @@
 import argparse, json, socket, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "3.0"
+VERSION = "3.1"
 REPO = "https://github.com/TulungagungBlackHat/TBH-PortScanner"
 
 def banner():
@@ -90,34 +90,14 @@ def parse_ports(spec):
         return [int(p) for p in spec.split(",")]
     return [int(spec)]
 
-def main():
-    import os
-    parser = argparse.ArgumentParser(description=f"TBH-PortScanner v{VERSION}")
-    parser.add_argument("-t", "--target", required=True)
-    parser.add_argument("-p", "--ports", default="top100", help="top100 | 1-1000 | 80,443,8080")
-    parser.add_argument("-T", "--threads", type=int, default=100)
-    parser.add_argument("--timeout", type=float, default=1.0, help="connect timeout seconds")
-    parser.add_argument("--json", help="save JSON report")
-    parser.add_argument("--no-color", action="store_true")
-    parser.add_argument("--version", action="version", version=f"TBH-PortScanner {VERSION}")
-    args = parser.parse_args()
-    print(banner())
-
-    use_color = not args.no_color and not os.environ.get("NO_COLOR")
-    print(color("91", "[!] Authorized targets only.", use_color))
+def scan_host(target, ports, args, use_color):
     try:
-        ip = socket.gethostbyname(args.target)
+        ip = socket.gethostbyname(target)
     except socket.gaierror:
-        print(color("91", f"[!] cannot resolve {args.target}", use_color), file=sys.stderr)
-        sys.exit(2)
+        print(color("91", f"[!] cannot resolve {target}, skipped", use_color), file=sys.stderr)
+        return None
 
-    try:
-        ports = parse_ports(args.ports)
-    except ValueError:
-        print(color("91", "[!] bad --ports value", use_color), file=sys.stderr)
-        sys.exit(2)
-
-    print(f"[*] {args.target} ({ip}) | {len(ports)} ports | {args.threads} threads")
+    print(f"[*] {target} ({ip}) | {len(ports)} ports | {args.threads} threads")
     start = time.time()
     open_ports = []
     with ThreadPoolExecutor(max_workers=args.threads) as ex:
@@ -128,12 +108,63 @@ def main():
                 banner_str = f"  banner={r['banner']!r}" if r["banner"] else ""
                 print(color("91", f"[OPEN] {r['port']}/{r['service']}{banner_str}", use_color) + hint)
     elapsed = round(time.time() - start, 2)
+    print(f"[✓] {target}: {len(open_ports)} open in {elapsed}s")
+    return {"target": target, "ip": ip, "elapsed": elapsed,
+            "summary": {"open": len(open_ports)}, "findings": open_ports}
 
-    print(f"[✓] Found {len(open_ports)} open in {elapsed}s")
+def main():
+    import os
+    parser = argparse.ArgumentParser(description=f"TBH-PortScanner v{VERSION}")
+    parser.add_argument("-t", "--target", help="host or IP")
+    parser.add_argument("--targets", help="file with one host per line (multi-target)")
+    parser.add_argument("-p", "--ports", default="top100", help="top100 | 1-1000 | 80,443,8080")
+    parser.add_argument("-T", "--threads", type=int, default=100)
+    parser.add_argument("--timeout", type=float, default=1.0, help="connect timeout seconds")
+    parser.add_argument("--json", help="save JSON report")
+    parser.add_argument("--no-color", action="store_true")
+    parser.add_argument("--version", action="version", version=f"TBH-PortScanner {VERSION}")
+    args = parser.parse_args()
+    if not args.target and not args.targets:
+        parser.error("-t or --targets is required")
+    print(banner())
+
+    use_color = not args.no_color and not os.environ.get("NO_COLOR")
+    print(color("91", "[!] Authorized targets only.", use_color))
+
+    try:
+        ports = parse_ports(args.ports)
+    except ValueError:
+        print(color("91", "[!] bad --ports value", use_color), file=sys.stderr)
+        sys.exit(2)
+
+    targets = ([args.target] if args.target else [])
+    if args.targets:
+        try:
+            with open(args.targets) as fh:
+                targets += [line.strip() for line in fh
+                            if line.strip() and not line.strip().startswith("#")]
+        except OSError as e:
+            print(color("91", f"[!] cannot read targets file: {e}", use_color), file=sys.stderr)
+            sys.exit(2)
+
+    reports = []
+    for i, t in enumerate(targets):
+        if i > 0 and args.targets:
+            print(color("96", "-" * 40, use_color))
+        r = scan_host(t, ports, args, use_color)
+        if r:
+            reports.append(r)
+
+    if not reports:
+        sys.exit(2)
+
     if args.json:
-        report = {"tool": "TBH-PortScanner", "version": VERSION, "target": args.target,
-                  "ip": ip, "elapsed": elapsed,
-                  "summary": {"open": len(open_ports)}, "findings": open_ports}
+        report = ({"tool": "TBH-PortScanner", "version": VERSION, **reports[0]}
+                  if len(reports) == 1 else
+                  {"tool": "TBH-PortScanner", "version": VERSION,
+                   "summary": {"targets": len(reports),
+                               "open": sum(r["summary"]["open"] for r in reports)},
+                   "targets": reports})
         try:
             with open(args.json, "w") as fh:
                 json.dump(report, fh, indent=2)
@@ -142,7 +173,7 @@ def main():
             print(color("91", f"[!] cannot write JSON: {e}", use_color), file=sys.stderr)
             sys.exit(2)
 
-    sys.exit(1 if open_ports else 0)
+    sys.exit(1 if any(r["findings"] for r in reports) else 0)
 
 if __name__ == "__main__":
     main()
