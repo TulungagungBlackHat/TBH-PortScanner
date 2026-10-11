@@ -1,3 +1,8 @@
+> [!WARNING]
+> **ARCHIVED (2026-10-11)** — superseded by [TBH-CLI](https://github.com/TulungagungBlackHat/TBH-CLI):
+> `python3 tbh -u <url> -m ports` (top-15 + CVE hints) or [TBH-Recon](https://github.com/TulungagungBlackHat/TBH-Recon) `-p`.
+> No further updates; the repo stays readable for history.
+
 # TBH-PortScanner
 
 <p align="center">
